@@ -1,798 +1,279 @@
-# ELT API Snowflake DBT
+# ELT Pipeline: API → Snowflake → dbt
 
-[![CI/CD Pipeline](https://github.com/Sriram18R/elt-api-snowflake-dbt/actions/workflows/ci.yml/badge.svg)](https://github.com/Sriram18R/elt-api-snowflake-dbt/actions/workflows/ci.yml)
+A production-ready ELT (Extract, Load, Transform) pipeline that extracts data from APIs, validates it, and loads it into Snowflake or DuckDB for transformation with dbt.
 
-Production-quality ELT pipeline demonstrating enterprise data engineering practices: REST API extraction, data validation, Snowflake loading, and DBT transformation with comprehensive testing and CI/CD automation.
+## Features
 
----
+- **Extract**: Pull data from REST APIs with retry logic and pagination support
+- **Validate**: Comprehensive data quality checks and schema validation
+- **Transform**: Normalize, clean, and enrich data before loading
+- **Load**: Support for both DuckDB (local) and Snowflake (production)
+- **Logging**: Detailed logging with file rotation and console output
+- **Configuration Management**: Environment-based configuration with sensible defaults
+- **Error Handling**: Custom exception hierarchy with retry policies
 
-## 🎯 Business Problem
-
-**Objective:** Build a scalable, auditable ELT pipeline that:
-- Extracts data from a stable public REST API (OpenWeather API - free historical data endpoint)
-- Validates and normalizes raw data
-- Loads into Snowflake or local DuckDB
-- Transforms through medallion architecture (Raw → Staging → Intermediate → Marts)
-- Provides production-ready analytics datasets with full data quality assurance
-
-**Use Case:** Weather analytics platform tracking global weather patterns, regional trends, and anomaly detection.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    A["Public REST API<br/>(OpenWeather)"] -->|Extract| B["Python Extract Layer"]
-    B -->|Validate| C["Validation Engine"]
-    C -->|Normalize| D["Transformation Layer"]
-    D -->|JSON| E["Raw Data<br/>(JSON Files)"]
-    E -->|Load| F{Environment?}
-    F -->|Local| G["DuckDB<br/>(Local Development)"]
-    F -->|Production| H["Snowflake Raw Schema"]
-    G -->|Transform| I["DBT Staging"]
-    H -->|Transform| I
-    I -->|Intermediate| J["DBT Intermediate"]
-    J -->|Mart| K["DBT Marts<br/>(Analytics Ready)"]
-    K -->|BI Tools| L["Dashboards & Analytics"]
-    
-    style A fill:#e1f5ff
-    style B fill:#fff3e0
-    style C fill:#f3e5f5
-    style G fill:#e8f5e9
-    style H fill:#fce4ec
-    style K fill:#c8e6c9
-```
-
-**Data Flow:**
-1. **Extract**: Python client fetches data via OpenWeather API with retry logic and rate limiting
-2. **Validate**: Schema validation, null checks, duplicate detection, business rule validation
-3. **Normalize**: Standardize timestamps, null values, column naming conventions
-4. **Raw Load**: Store validated JSON in Snowflake `raw_weather` schema
-5. **Staging**: DBT models flatten and clean data, `stg_weather_*` tables
-6. **Intermediate**: Aggregate and enrich, `int_weather_*` tables
-7. **Marts**: Business-ready datasets for specific use cases, `fct_weather_*` and `dim_*` tables
-
----
-
-## 🛠️ Technology Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Extraction** | Python 3.11+, requests, httpx with backoff |
-| **Validation** | Pydantic V2, jsonschema |
-| **Local Storage** | DuckDB (zero config, SQL-native) |
-| **Cloud Data Warehouse** | Snowflake (configurable via env vars) |
-| **Transformation** | DBT (data build tool) |
-| **Testing** | pytest, pytest-cov, dbt test |
-| **Code Quality** | Ruff, mypy, type hints |
-| **CI/CD** | GitHub Actions |
-| **Logging** | Python structlog, JSON output |
-
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```
-elt-api-snowflake-dbt/
-├── ingestion/                          # Python ELT layer
+.
+├── ingestion/
 │   ├── __init__.py
-│   ├── client.py                       # HTTP client with retry logic
-│   ├── extractor.py                    # API data extraction
-│   ├── validator.py                    # Schema & data validation
-│   ├── transformer.py                  # Data normalization
-│   ├── loader.py                       # Snowflake/DuckDB loading
-│   ├── exceptions.py                   # Custom exceptions
-│   ├── logger.py                       # Structured logging
-│   ├── config.py                       # Configuration management
-│   └── main.py                         # Orchestration entrypoint
-│
-├── dbt_project/                        # DBT transformation layer
-│   ├── models/
-│   │   ├── staging/
-│   │   │   ├── stg_weather_observations.sql
-│   │   │   ├── stg_weather_cities.sql
-│   │   │   └── _stg_weather__staging.yml
-│   │   ├── intermediate/
-│   │   │   ├── int_weather_daily_aggregates.sql
-│   │   │   ├── int_weather_regional_stats.sql
-│   │   │   └── _int_weather__intermediate.yml
-│   │   └── marts/
-│   │       ├── fct_weather_measurements.sql
-│   │       ├── dim_cities.sql
-│   │       ├── agg_daily_weather_summary.sql
-│   │       └── _marts__mart.yml
-│   ├── macros/
-│   │   ├── generate_surrogate_key.sql
-│   │   └── validate_business_rules.sql
-│   ├── tests/
-│   │   ├── generic/
-│   │   │   └── business_logic_tests.sql
-│   │   └── unit/
-│   │       └── test_transformations.sql
-│   ├── dbt_project.yml
-│   ├── profiles.yml.example
-│   └── seeds/
-│       └── city_reference.csv
-│
-├── tests/                              # Python test suite
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── unit/
-│   │   ├── test_client.py
-│   │   ├── test_extractor.py
-│   │   ├── test_validator.py
-│   │   ├── test_transformer.py
-│   │   └── test_loader.py
-│   └── integration/
-│       ├── test_e2e_pipeline.py
-│       └── fixtures/
-│           └── sample_api_response.json
-│
-├── sample_data/
-│   ├── raw_api_response.json
-│   ├── validated_data.json
-│   └── README.md
-│
-├── docs/
-│   ├── architecture.md
-│   ├── snowflake_setup.sql
-│   ├── dbt_workflow.md
-│   ├── data_quality_framework.md
-│   └── deployment_guide.md
-│
-├── .github/workflows/
-│   └── ci.yml                          # GitHub Actions CI/CD
-│
-├── pyproject.toml                      # Python project config
-├── requirements.txt                    # Python dependencies
-├── requirements-dev.txt                # Development dependencies
-├── .env.example                        # Environment variable template
-├── .gitignore                          # Git ignore rules
-├── Makefile                            # Convenience commands
-└── LICENSE                             # MIT License
+│   ├── config.py          # Configuration management
+│   ├── exceptions.py      # Custom exceptions
+│   ├── logger.py          # Logging setup
+│   ├── extractor.py       # API data extraction
+│   ├── validator.py       # Data validation
+│   ├── transformer.py     # Data transformation
+│   ├── loader.py          # Data loading
+│   └── main.py            # Pipeline orchestration
+├── tests/                 # Unit and integration tests
+├── dbt_project/          # dbt models and configurations
+├── .env.example          # Environment variables template
+├── requirements.txt      # Production dependencies
+├── requirements-dev.txt  # Development dependencies
+├── Makefile             # Development commands
+└── README.md            # This file
 ```
 
----
-
-## 🚀 Quick Start
+## Installation
 
 ### Prerequisites
 
-- **Python 3.11+**
-- **pip** or **uv**
-- **Git**
-- **DuckDB** (auto-installed) OR **Snowflake account** (optional)
-- **DBT** (auto-installed)
+- Python 3.8+
+- pip or conda
 
-### Local Development Setup
+### Setup
 
+1. Clone the repository:
 ```bash
-# 1. Clone repository
-git clone https://github.com/Sriram18R/elt-api-snowflake-dbt.git
+git clone <repository-url>
 cd elt-api-snowflake-dbt
+```
 
-# 2. Create virtual environment
+2. Create a virtual environment:
+```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
-# 3. Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+3. Install dependencies:
+```bash
+make install
+```
 
-# 4. Configure environment
+4. Configure environment variables:
+```bash
 cp .env.example .env
-# Edit .env and set:
-# - EXECUTION_MODE=local (default)
-# - API_BASE_URL (optional, defaults to free tier)
-
-# 5. Run ingestion pipeline (local mode with DuckDB)
-python -m ingestion.main
-
-# 6. Run Python tests
-pytest -v --cov=ingestion
-
-# 7. Transform with DBT (local DuckDB)
-cd dbt_project
-dbt deps
-dbt run
-dbt test
-
-# 8. View data quality summary
-dbt test --select state:failed
+# Edit .env with your configuration
 ```
 
----
+## Configuration
 
-## ☁️ Snowflake Setup (Production)
+Edit `.env` to configure the pipeline:
 
-### 1. Configure Snowflake Connection
+### Execution Mode
+```env
+EXECUTION_MODE=local  # or 'snowflake' for production
+LOG_LEVEL=INFO        # DEBUG, INFO, WARNING, ERROR
+```
 
+### API Configuration
+```env
+API_BASE_URL=https://api.example.com
+API_TIMEOUT=30
+API_MAX_RETRIES=3
+API_KEY=your_api_key
+```
+
+### Snowflake Configuration (if EXECUTION_MODE=snowflake)
+```env
+SNOWFLAKE_ACCOUNT=your_account
+SNOWFLAKE_USER=your_user
+SNOWFLAKE_PASSWORD=your_password
+SNOWFLAKE_WAREHOUSE=COMPUTE_WH
+SNOWFLAKE_DATABASE=ANALYTICS
+SNOWFLAKE_SCHEMA=PUBLIC
+```
+
+## Usage
+
+### Basic Pipeline Run
+
+```python
+from ingestion.main import ELTPipeline
+
+with ELTPipeline() as pipeline:
+    report = pipeline.run(
+        endpoint="api/users",
+        table_name="users",
+        load_mode="append"
+    )
+    print(report)
+```
+
+### Paginated Data Extraction
+
+```python
+with ELTPipeline() as pipeline:
+    report = pipeline.extract_paginated(
+        endpoint="api/events",
+        table_name="events",
+        page_size=100,
+        max_pages=10
+    )
+```
+
+### With Data Validation
+
+```python
+schema = {
+    "required_fields": ["id", "email"],
+    "field_types": {
+        "id": int,
+        "email": str
+    }
+}
+
+with ELTPipeline() as pipeline:
+    report = pipeline.run(
+        endpoint="api/users",
+        table_name="users",
+        schema=schema
+    )
+```
+
+### With Data Transformation
+
+```python
+transformations = [
+    {"type": "rename", "from": "user_id", "to": "id"},
+    {"type": "map", "field": "status", "mapping": {"active": 1, "inactive": 0}},
+]
+
+with ELTPipeline() as pipeline:
+    report = pipeline.run(
+        endpoint="api/users",
+        table_name="users",
+        transformations=transformations
+    )
+```
+
+## Development
+
+### Run Tests
 ```bash
-# Edit .env with your Snowflake credentials
-export EXECUTION_MODE=snowflake
-export SNOWFLAKE_ACCOUNT=xy12345.us-east-1
-export SNOWFLAKE_USER=elt_user
-export SNOWFLAKE_PASSWORD=your_secure_password
-export SNOWFLAKE_ROLE=ELT_ROLE
-export SNOWFLAKE_WAREHOUSE=ELT_WH
-export SNOWFLAKE_DATABASE=ANALYTICS
-export SNOWFLAKE_SCHEMA=raw_weather
-```
-
-### 2. Execute Setup SQL (as ACCOUNTADMIN)
-
-```bash
-# Apply database and schema setup
-snowsql -c your_connection -f docs/snowflake_setup.sql
-
-# Grant permissions to ELT role
-snowsql -c your_connection << EOF
-USE ROLE ACCOUNTADMIN;
-GRANT CREATE SCHEMA ON DATABASE ANALYTICS TO ROLE ELT_ROLE;
-GRANT USAGE ON WAREHOUSE ELT_WH TO ROLE ELT_ROLE;
-EOF
-```
-
-### 3. Configure DBT for Snowflake
-
-```bash
-cd dbt_project
-cp profiles.yml.example profiles.yml
-# Edit profiles.yml with your Snowflake credentials
-# DBT will use credentials from profiles.yml or environment variables
-
-dbt debug  # Verify connection
-dbt run    # Execute transformations
-```
-
-### 4. Run Full Pipeline
-
-```bash
-# Extract and load to Snowflake
-python -m ingestion.main
-
-# Transform
-cd dbt_project && dbt run && dbt test
-```
-
----
-
-## 📊 Data Quality Framework
-
-### Validation Layers
-
-**Python (Pre-Load Validation)**
-- ✅ Schema validation (Pydantic models)
-- ✅ Required fields enforcement
-- ✅ Data type coercion with fallback
-- ✅ Null handling and unknown value standardization
-- ✅ Duplicate detection (composite key: city_id, timestamp)
-- ✅ Business rule validation (temperature ranges, date bounds)
-- ✅ Source metadata tagging (ingestion_timestamp, source_name, record_id)
-
-**DBT (Post-Load Validation)**
-- ✅ Not null constraints
-- ✅ Unique key validation
-- ✅ Referential integrity (cities dimension)
-- ✅ Accepted values (valid weather conditions)
-- ✅ Custom business logic tests (weather anomalies)
-- ✅ Row count reconciliation (source vs target)
-
-### Data Quality Checks
-
-| Check | Type | Level | Formula |
-|-------|------|-------|---------|
-| Null Rate | Anomaly | Staging | `COUNT(NULL) / total_rows` |
-| Duplicate Rate | Anomaly | Staging | `(rows_total - rows_distinct) / rows_total` |
-| Invalid Dates | Validation | Staging | `WHERE DATE < '2000-01-01' OR DATE > CURRENT_DATE` |
-| Temperature Bounds | Business Rule | Staging | `WHERE temp_c < -60 OR temp_c > 60` |
-| Missing Cities | Referential Integrity | Intermediate | Foreign key constraint on dim_cities |
-
-### Monitoring
-
-```sql
--- Check data quality in Snowflake
-SELECT 
-    model_name,
-    status,
-    COUNT(*) as test_count
-FROM analytics.dbt_test_results
-WHERE test_date >= CURRENT_DATE - 7
-GROUP BY 1, 2
-ORDER BY 1;
-```
-
----
-
-## 🧪 Testing Strategy
-
-### Python Unit Tests
-
-```bash
-# Run all tests with coverage
-pytest -v --cov=ingestion --cov-report=html
-
-# Run specific test class
-pytest tests/unit/test_validator.py::TestSchemaValidation -v
-
-# Run with markers
-pytest -m "not integration" -v
-```
-
-**Test Coverage:**
-- `test_client.py`: Retry logic, timeouts, connection errors
-- `test_extractor.py`: API response parsing, empty results
-- `test_validator.py`: Schema validation, duplicate detection, null handling
-- `test_transformer.py`: Data normalization, timestamp handling
-- `test_loader.py`: DuckDB and Snowflake write operations
-
-### Integration Tests
-
-```bash
-# End-to-end: API → Ingestion → Validation → Local DuckDB
-pytest tests/integration/test_e2e_pipeline.py -v
-
-# Mocked API, real validation, real local load
-# Verifies: schema compliance, data quality, idempotency
-```
-
-### DBT Tests
-
-```bash
-cd dbt_project
-
-# Run all tests
-dbt test
-
-# Run tests for specific model
-dbt test --select stg_weather_observations
-
-# Run tests with detailed output
-dbt test --store-failures
-
-# View test failures
-cat target/dbt_test_results.json | jq '.[] | select(.status == "fail")'
-```
-
-**DBT Test Examples:**
-```yaml
-# Unique and not null on surrogate key
-- dbt_utils.unique_combination_of_columns:
-    combination_of_columns:
-      - observation_id
-      - city_id
-      - measurement_date
-
-# Referential integrity
-- relationships:
-    to: ref('dim_cities')
-    field: city_id
-
-# Accepted values
-- accepted_values:
-    values: ['Sunny', 'Cloudy', 'Rainy', 'Snowy', 'Unknown']
-
-# Custom business logic
-- custom_weather_bounds:
-    column_name: temperature_celsius
-```
-
----
-
-## 🔄 DBT Workflow
-
-### Models and Lineage
-
-```
-raw_weather (Snowflake source)
-    ├── stg_weather_observations
-    │   ├── int_weather_daily_aggregates
-    │   └── fct_weather_measurements
-    ├── stg_weather_cities
-    │   └── dim_cities
-    │       └── fct_weather_measurements
-    └── agg_daily_weather_summary
-```
-
-### Incremental Strategy
-
-**Fact tables** use `table` strategy (full refresh daily):
-```sql
-{{
-  config(
-    materialized='table',
-    on_schema_change='fail'
-  )
-}}
-```
-
-**Dimensions** use `incremental` strategy with `updated_at` merge key:
-```sql
-{{
-  config(
-    materialized='incremental',
-    unique_key='city_id',
-    on_schema_change='fail'
-  )
-}}
-```
-
-### Running Transformations
-
-```bash
-cd dbt_project
-
-# Full refresh (production daily run)
-dbt run --full-refresh
-
-# Incremental run (intraday)
-dbt run
-
-# Selective run by tag
-dbt run --select tag:daily_refresh
-
-# Parse and validate only
-dbt compile
-
-# Generate documentation
-dbt docs generate
-dbt docs serve
-```
-
----
-
-## 🔐 Security & Configuration Management
-
-### Environment Variables
-
-**Never commit `.env` file.** Template provided:
-
-```bash
-# .env.example
-EXECUTION_MODE=local  # local | snowflake
-
-# API Configuration
-API_BASE_URL=https://api.openweathermap.org/data/2.5
-API_TIMEOUT_SECONDS=30
-MAX_RETRIES=3
-BACKOFF_FACTOR=1.5
-
-# Local Storage (DuckDB)
-LOCAL_DB_PATH=./data/local_warehouse.duckdb
-
-# Snowflake (Production)
-# DO NOT COMMIT ACTUAL CREDENTIALS
-SNOWFLAKE_ACCOUNT=
-SNOWFLAKE_USER=
-SNOWFLAKE_PASSWORD=
-SNOWFLAKE_ROLE=
-SNOWFLAKE_WAREHOUSE=
-SNOWFLAKE_DATABASE=
-SNOWFLAKE_SCHEMA=
-
-# Logging
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-```
-
-### Secrets Management
-
-**GitHub Actions:**
-- Add Snowflake credentials to repository secrets (`Settings → Secrets and variables → Actions`)
-- CI/CD never tests against production Snowflake (only local DuckDB)
-- Credential injection via environment at runtime only
-
-**Local Development:**
-- Use `.env` file (never committed)
-- Load via `python-dotenv`
-- Validate no secrets in logs
-
-### Code Review Checklist
-
-- [ ] No hardcoded credentials in code or config
-- [ ] All secrets use environment variables
-- [ ] `.env` in `.gitignore`
-- [ ] Secrets masked in logs and CI output
-- [ ] API key handling (only use public endpoints or masked keys)
-
----
-
-## 🚦 CI/CD Pipeline
-
-### GitHub Actions Workflow (`.github/workflows/ci.yml`)
-
-**Triggers:** Push to `main`, PR to `main`
-
-**Steps:**
-
-1. **Setup** (Python 3.11, DuckDB)
-   ```bash
-   python -m pip install --upgrade pip
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt
-   ```
-
-2. **Lint & Type Check** (Ruff, mypy)
-   ```bash
-   ruff check ingestion tests --select=E,W,F
-   mypy ingestion --strict --ignore-missing-imports
-   ```
-
-3. **Python Tests** (pytest with coverage)
-   ```bash
-   pytest tests/ -v --cov=ingestion --cov-report=term-missing
-   ```
-
-4. **DBT Compilation** (No Snowflake credentials required)
-   ```bash
-   cd dbt_project
-   dbt parse
-   dbt compile
-   ```
-
-5. **DBT Local Tests** (Uses DuckDB)
-   ```bash
-   dbt test --profiles-dir ./profiles
-   ```
-
-6. **Coverage Report** (Upload to Codecov)
-   ```bash
-   codecov -f coverage.xml
-   ```
-
-### Local CI Simulation
-
-```bash
-make lint
 make test
-make dbt-compile
-make dbt-test
 ```
 
----
-
-## 📈 Execution Modes
-
-### Local Mode (Development)
-
-**Database:** DuckDB (serverless, no setup required)
-
-**Setup:**
+### Run with Coverage
 ```bash
-export EXECUTION_MODE=local
-python -m ingestion.main
-# Creates: ./data/local_warehouse.duckdb
+make coverage
 ```
 
-**Advantages:**
-- Zero infrastructure
-- Full SQL debugging
-- Fast feedback loop
-- Reproducible local tests
-
-**Queries:**
-```sql
--- Connect with DuckDB CLI
-duckdb data/local_warehouse.duckdb
-
--- List tables
-SELECT table_name FROM information_schema.tables;
-
--- Query raw data
-SELECT * FROM raw_weather LIMIT 10;
-```
-
-### Snowflake Mode (Production)
-
-**Database:** Snowflake (requires account and credentials)
-
-**Setup:**
+### Code Quality Checks
 ```bash
-export EXECUTION_MODE=snowflake
-export SNOWFLAKE_ACCOUNT=xy12345.us-east-1
-# ... (other env vars)
-python -m ingestion.main
+make lint      # Run linters
+make format    # Format code with black
+make type-check  # Run mypy type checker
 ```
 
-**Advantages:**
-- Enterprise-grade scalability
-- Multi-tenant isolation
-- Native Snowflake BI integration
-- Zero-copy data sharing
-
-**Cost Optimization:**
-- Uses X-Small warehouse (1 credit/hour) for testing
-- Queries run on-demand, no storage cost
-- Snowflake query result cache (24 hours)
-
----
-
-## 📚 Advanced Topics
-
-### Monitoring & Observability
-
-**Structured Logging**
-
-```python
-# All logs as JSON (parse with jq)
-logger.info("data_loaded", 
-    rows_count=1000,
-    source="api",
-    duration_seconds=2.5,
-    warehouse="duckdb"
-)
-```
-
-**Log Queries:**
+### View Logs
 ```bash
-# Filter by event type
-cat logs/ingestion.log | jq 'select(.event == "data_loaded")'
-
-# Aggregate duration by source
-cat logs/ingestion.log | jq 'group_by(.source) | map({source: .[0].source, avg_duration: map(.duration_seconds) | add / length})'
+tail -f logs/elt_pipeline.log
 ```
 
-### Incremental Loading
+## Architecture
 
-**Idempotent Upsert:**
-```python
-# loader.py detects duplicates by (city_id, measurement_timestamp)
-# Existing records are updated, new records inserted
-loader.load_incremental(
-    data=validated_data,
-    table="raw_weather",
-    key_columns=["city_id", "measurement_timestamp"]
-)
-```
+### Extract Phase
+- Connects to REST APIs using configurable authentication
+- Supports pagination for large datasets
+- Implements retry logic with exponential backoff
+- Rate limiting to avoid API throttling
 
-### Error Handling & Recovery
+### Validate Phase
+- Schema validation against defined schemas
+- Data quality checks (null counts, missing values)
+- Duplicate detection based on key fields
+- Configurable strict vs. lenient mode
 
-**Retry Strategy:**
-- Max retries: 3
-- Backoff: exponential (1.5x factor)
-- Jitter: ±10%
-- Circuit breaker: Fail after 5 consecutive 5xx errors
+### Transform Phase
+- Field normalization (lowercase, trim whitespace)
+- Null value handling
+- Duplicate removal
+- Custom transformations (rename, map, concatenate, extract)
+- Computed field generation
 
-**Failure Modes:**
-- API timeout: Retry with exponential backoff
-- Validation failure: Log and skip record, continue pipeline
-- Load failure: Raise exception, trigger alerts
-- DBT test failure: Block dbt run, alert team
+### Load Phase
+- Batch loading for performance
+- Support for multiple warehouse backends
+- Automatic table creation with schema inference
+- Configurable truncate-before-load behavior
 
----
+## Error Handling
 
-## 🔍 Troubleshooting
+The pipeline uses custom exceptions for different error scenarios:
 
-### Common Issues
+- `ELTException`: Base exception for all pipeline errors
+- `ConfigurationError`: Configuration is invalid or missing
+- `ExtractionError`: Data extraction from API fails
+- `ValidationError`: Data validation fails
+- `TransformationError`: Data transformation fails
+- `LoadingError`: Data loading fails
+- `RetryableError`: Errors that can be retried
+- `NonRetryableError`: Errors that should not be retried
 
-**Issue: DuckDB file locked**
-```bash
-rm data/local_warehouse.duckdb
-python -m ingestion.main  # Recreates DB
-```
+## Logging
 
-**Issue: Snowflake authentication fails**
-```bash
-# Verify credentials
-snowsql -c your_connection -q "SELECT CURRENT_USER();"
+The pipeline logs to both console and file:
 
-# Check environment variables are loaded
-env | grep SNOWFLAKE
-```
+- **Console**: Shows INFO level and above
+- **File**: `logs/elt_pipeline.log` (rotated, 10MB max)
 
-**Issue: DBT compilation errors**
+Log levels can be configured via `LOG_LEVEL` environment variable.
+
+## Data Warehouse Support
+
+### DuckDB (Local Development)
+- Lightweight, serverless
+- Perfect for testing and development
+- Stores data in `data/local_warehouse.duckdb`
+
+### Snowflake (Production)
+- Fully managed cloud warehouse
+- Scalable to any data volume
+- Requires Snowflake credentials
+
+## dbt Integration
+
+The loaded raw data can be transformed using dbt:
+
 ```bash
 cd dbt_project
-dbt parse --debug  # Verbose error messages
-dbt run --debug --profiles-dir ./profiles
+dbt run
+dbt test
+dbt docs generate
 ```
 
-**Issue: Tests fail in CI but pass locally**
-```bash
-# CI uses local DuckDB, verify pytest runs with local config
-export EXECUTION_MODE=local
-pytest tests/ -v
+## Performance Tuning
 
-# Check seed data is committed
-git status dbt_project/seeds/
-```
+- **Batch Size**: Adjust `LOADER_BATCH_SIZE` for optimal insert performance
+- **Pagination**: Use smaller `page_size` for unreliable networks
+- **Retry Delays**: Increase `API_RETRY_DELAY` for rate-limited APIs
+- **Validation**: Use `VALIDATION_STRICT_MODE=false` to collect all errors before failing
 
----
+## Contributing
 
-## 📖 API Reference
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make your changes and add tests
+3. Run tests and linters: `make test lint`
+4. Commit your changes: `git commit -am 'Add feature'`
+5. Push to the branch: `git push origin feature/your-feature`
+6. Submit a pull request
 
-### Python Ingestion Module
+## License
 
-```python
-from ingestion import Extractor, Validator, Transformer, Loader
+MIT License - see LICENSE file for details
 
-# 1. Extract
-extractor = Extractor(
-    base_url="https://api.openweathermap.org/data/2.5",
-    timeout_seconds=30,
-    max_retries=3
-)
-raw_data = extractor.extract_weather(city_id="2950159")  # Berlin
+## Support
 
-# 2. Validate
-validator = Validator()
-validated_data = validator.validate(raw_data)  # Raises ValidationError on fail
-
-# 3. Transform
-transformer = Transformer()
-normalized_data = transformer.transform(validated_data)
-
-# 4. Load
-loader = Loader(warehouse="duckdb")
-loader.load(
-    data=normalized_data,
-    table="raw_weather",
-    mode="incremental"
-)
-```
-
-### DBT Macros
-
-```sql
--- Generate deterministic surrogate key
-{{ generate_surrogate_key(['city_id', 'measurement_date']) }}
-
--- Validate business rules
-{{ validate_business_rules('temperature_celsius', -60, 60) }}
-```
-
----
-
-## 🎓 Learning Resources
-
-- [DBT Docs](https://docs.getdbt.com/)
-- [Snowflake SQL Reference](https://docs.snowflake.com/en/sql-reference.html)
-- [Pydantic V2 Validation](https://docs.pydantic.dev/latest/)
-- [pytest Best Practices](https://docs.pytest.org/)
-- [GitHub Actions](https://docs.github.com/en/actions)
-
----
-
-## 🚧 Future Improvements
-
-- [ ] Incremental fact table loading (delta detection by `updated_at`)
-- [ ] Data freshness SLA monitoring (alert if pipeline > 24h old)
-- [ ] Cost optimization tracking (Snowflake credit usage dashboard)
-- [ ] Schema evolution handling (add/drop columns gracefully)
-- [ ] Archival strategy for historical fact data
-- [ ] Real-time streaming mode (Kafka → Snowflake)
-- [ ] dbt metrics layer for BI integration
-- [ ] Advanced data quality (anomaly detection, outlier scoring)
-- [ ] Multi-region failover and disaster recovery
-- [ ] dbt artifacts versioning and audit trail
-
----
-
-## 📝 License
-
-MIT License — See [LICENSE](LICENSE) file for details.
-
----
-
-## 👥 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Add tests for new functionality
-4. Run `make test` and `make lint` locally
-5. Submit pull request with detailed description
-
----
-
-## 📞 Support
-
-- **Issues:** [GitHub Issues](https://github.com/Sriram18R/elt-api-snowflake-dbt/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/Sriram18R/elt-api-snowflake-dbt/discussions)
-- **Documentation:** [./docs/](./docs/)
-
----
-
-**Last Updated:** 2026-09-01  
-**Status:** ✅ Production-Ready
+For issues, questions, or suggestions, please open a GitHub issue.
