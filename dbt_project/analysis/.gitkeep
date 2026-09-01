@@ -1,0 +1,2 @@
+-- Analysis SQL files for exploratory analysis
+-- These files are compiled but not executed in dbt run
