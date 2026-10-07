@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 from ingestion.exceptions import ConfigurationError
 
-# Load environment variables from .env file
 load_dotenv()
 
 
@@ -28,7 +27,8 @@ class SnowflakeConfig:
         """Validate Snowflake configuration."""
         required_fields = ["account", "user", "password", "warehouse", "database", "schema"]
         for field_name in required_fields:
-            if not getattr(self, field_name):
+            value = getattr(self, field_name)
+            if not value or (isinstance(value, str) and not value.strip()):
                 raise ConfigurationError(
                     f"Snowflake config missing required field: {field_name}"
                 )
@@ -54,8 +54,14 @@ class APIConfig:
 
     def __post_init__(self) -> None:
         """Validate API configuration."""
-        if not self.base_url:
+        if not self.base_url or (isinstance(self.base_url, str) and not self.base_url.strip()):
             raise ConfigurationError("API base_url is required")
+        if self.timeout <= 0:
+            raise ConfigurationError("API timeout must be > 0")
+        if self.max_retries < 0:
+            raise ConfigurationError("API max_retries must be >= 0")
+        if self.retry_delay < 0:
+            raise ConfigurationError("API retry_delay must be >= 0")
 
 
 @dataclass
@@ -65,6 +71,10 @@ class ValidationConfig:
     strict_mode: bool = True
     allow_null_required_fields: bool = False
     max_validation_errors: int = 100
+
+    def __post_init__(self) -> None:
+        if self.max_validation_errors <= 0:
+            raise ConfigurationError("max_validation_errors must be > 0")
 
 
 @dataclass
@@ -85,23 +95,30 @@ class LoaderConfig:
     truncate_before_load: bool = False
     create_tables_if_missing: bool = True
 
+    def __post_init__(self) -> None:
+        if self.batch_size <= 0:
+            raise ConfigurationError("batch_size must be > 0")
+
 
 class Config:
     """Main configuration class for the ELT pipeline."""
 
     def __init__(self) -> None:
         """Initialize configuration from environment variables."""
-        self.execution_mode = os.getenv("EXECUTION_MODE", "local").lower()
-        self.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-        self.data_dir = os.getenv("DATA_DIR", "data")
+        self.execution_mode = os.getenv("EXECUTION_MODE", "local").lower().strip()
+        self.log_level = os.getenv("LOG_LEVEL", "INFO").upper().strip()
+        self.data_dir = os.getenv("DATA_DIR", "data").strip()
 
-        # Initialize mode-specific configs
+        if self.execution_mode not in ["local", "snowflake"]:
+            raise ConfigurationError(
+                f"Invalid EXECUTION_MODE: {self.execution_mode}. Must be 'local' or 'snowflake'"
+            )
+
         if self.execution_mode == "snowflake":
             self.warehouse_config = self._load_snowflake_config()
         else:
             self.warehouse_config = self._load_duckdb_config()
 
-        # Initialize pipeline components
         self.api_config = self._load_api_config()
         self.validation_config = self._load_validation_config()
         self.transformation_config = self._load_transformation_config()
@@ -113,91 +130,91 @@ class Config:
     def _load_snowflake_config() -> SnowflakeConfig:
         """Load Snowflake configuration from environment variables."""
         return SnowflakeConfig(
-            account=os.getenv("SNOWFLAKE_ACCOUNT", ""),
-            user=os.getenv("SNOWFLAKE_USER", ""),
-            password=os.getenv("SNOWFLAKE_PASSWORD", ""),
-            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", ""),
-            database=os.getenv("SNOWFLAKE_DATABASE", ""),
-            schema=os.getenv("SNOWFLAKE_SCHEMA", ""),
-            role=os.getenv("SNOWFLAKE_ROLE"),
+            account=(os.getenv("SNOWFLAKE_ACCOUNT", "") or "").strip(),
+            user=(os.getenv("SNOWFLAKE_USER", "") or "").strip(),
+            password=(os.getenv("SNOWFLAKE_PASSWORD", "") or "").strip(),
+            warehouse=(os.getenv("SNOWFLAKE_WAREHOUSE", "") or "").strip(),
+            database=(os.getenv("SNOWFLAKE_DATABASE", "") or "").strip(),
+            schema=(os.getenv("SNOWFLAKE_SCHEMA", "") or "").strip(),
+            role=(os.getenv("SNOWFLAKE_ROLE") or "").strip() or None,
         )
 
     @staticmethod
     def _load_duckdb_config() -> DuckDBConfig:
         """Load DuckDB configuration from environment variables."""
         return DuckDBConfig(
-            database_path=os.getenv("DUCKDB_PATH", "data/local_warehouse.duckdb")
+            database_path=os.getenv("DUCKDB_PATH", "data/local_warehouse.duckdb").strip()
         )
 
     @staticmethod
     def _load_api_config() -> APIConfig:
         """Load API configuration from environment variables."""
-        return APIConfig(
-            base_url=os.getenv("API_BASE_URL", ""),
-            timeout=int(os.getenv("API_TIMEOUT", "30")),
-            max_retries=int(os.getenv("API_MAX_RETRIES", "3")),
-            retry_delay=int(os.getenv("API_RETRY_DELAY", "5")),
-            api_key=os.getenv("API_KEY"),
-        )
+        try:
+            return APIConfig(
+                base_url=(os.getenv("API_BASE_URL", "") or "").strip(),
+                timeout=int(os.getenv("API_TIMEOUT", "30")),
+                max_retries=int(os.getenv("API_MAX_RETRIES", "3")),
+                retry_delay=int(os.getenv("API_RETRY_DELAY", "5")),
+                api_key=(os.getenv("API_KEY") or "").strip() or None,
+            )
+        except ValueError as e:
+            raise ConfigurationError(f"Invalid API configuration: {str(e)}") from e
 
     @staticmethod
     def _load_validation_config() -> ValidationConfig:
         """Load validation configuration from environment variables."""
-        return ValidationConfig(
-            strict_mode=os.getenv("VALIDATION_STRICT_MODE", "true").lower() == "true",
-            allow_null_required_fields=os.getenv(
-                "VALIDATION_ALLOW_NULL_REQUIRED", "false"
-            ).lower()
-            == "true",
-            max_validation_errors=int(
-                os.getenv("VALIDATION_MAX_ERRORS", "100")
-            ),
-        )
+        try:
+            return ValidationConfig(
+                strict_mode=os.getenv("VALIDATION_STRICT_MODE", "true").lower() == "true",
+                allow_null_required_fields=os.getenv(
+                    "VALIDATION_ALLOW_NULL_REQUIRED", "false"
+                ).lower()
+                == "true",
+                max_validation_errors=int(os.getenv("VALIDATION_MAX_ERRORS", "100")),
+            )
+        except ValueError as e:
+            raise ConfigurationError(f"Invalid validation configuration: {str(e)}") from e
 
     @staticmethod
     def _load_transformation_config() -> TransformationConfig:
         """Load transformation configuration from environment variables."""
         return TransformationConfig(
-            normalize_case=os.getenv("TRANSFORM_NORMALIZE_CASE", "true").lower()
-            == "true",
+            normalize_case=os.getenv("TRANSFORM_NORMALIZE_CASE", "true").lower() == "true",
             remove_duplicates=os.getenv(
                 "TRANSFORM_REMOVE_DUPLICATES", "true"
             ).lower()
             == "true",
-            handle_nulls=os.getenv("TRANSFORM_HANDLE_NULLS", "true").lower()
-            == "true",
+            handle_nulls=os.getenv("TRANSFORM_HANDLE_NULLS", "true").lower() == "true",
         )
 
     @staticmethod
     def _load_loader_config() -> LoaderConfig:
         """Load loader configuration from environment variables."""
-        return LoaderConfig(
-            batch_size=int(os.getenv("LOADER_BATCH_SIZE", "1000")),
-            upsert_enabled=os.getenv("LOADER_UPSERT_ENABLED", "true").lower()
-            == "true",
-            truncate_before_load=os.getenv(
-                "LOADER_TRUNCATE_BEFORE_LOAD", "false"
-            ).lower()
-            == "true",
-            create_tables_if_missing=os.getenv(
-                "LOADER_CREATE_TABLES_IF_MISSING", "true"
-            ).lower()
-            == "true",
-        )
+        try:
+            return LoaderConfig(
+                batch_size=int(os.getenv("LOADER_BATCH_SIZE", "1000")),
+                upsert_enabled=os.getenv("LOADER_UPSERT_ENABLED", "true").lower() == "true",
+                truncate_before_load=os.getenv(
+                    "LOADER_TRUNCATE_BEFORE_LOAD", "false"
+                ).lower()
+                == "true",
+                create_tables_if_missing=os.getenv(
+                    "LOADER_CREATE_TABLES_IF_MISSING", "true"
+                ).lower()
+                == "true",
+            )
+        except ValueError as e:
+            raise ConfigurationError(f"Invalid loader configuration: {str(e)}") from e
 
     def _validate_config(self) -> None:
         """Validate configuration consistency."""
-        if self.execution_mode not in ["local", "snowflake"]:
-            raise ConfigurationError(
-                f"Invalid EXECUTION_MODE: {self.execution_mode}. "
-                "Must be 'local' or 'snowflake'"
-            )
-
         if not self.api_config.base_url:
             raise ConfigurationError("API_BASE_URL environment variable is required")
 
-        # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
+        logger_info = f"Config loaded: mode={self.execution_mode}, log_level={self.log_level}"
+        from ingestion.logger import get_logger
+        get_logger(__name__).info(logger_info)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""

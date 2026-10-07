@@ -20,6 +20,7 @@ class Validator:
         """
         self.config = config
         self.validation_errors: List[str] = []
+        self.dropped_records_count = 0
         logger.info(f"Validator initialized (strict_mode={config.strict_mode})")
 
     def validate_records(
@@ -40,6 +41,7 @@ class Validator:
             ValidationError: If validation fails in strict mode
         """
         self.validation_errors = []
+        self.dropped_records_count = 0
         valid_records: List[Dict[str, Any]] = []
 
         logger.info(f"Validating {len(records)} records")
@@ -51,23 +53,24 @@ class Validator:
             except ValidationError as e:
                 error_msg = f"Record {idx}: {str(e)}"
                 self.validation_errors.append(error_msg)
+                self.dropped_records_count += 1
                 logger.warning(error_msg)
 
                 if len(self.validation_errors) >= self.config.max_validation_errors:
                     break
 
-        # Check if we should raise error
         if self.validation_errors:
             error_summary = (
-                f"Validation failed: {len(self.validation_errors)} errors found"
+                f"Validation failed: {len(self.validation_errors)} errors found, "
+                f"{self.dropped_records_count} records dropped"
             )
             logger.error(error_summary)
 
             if self.config.strict_mode:
                 raise ValidationError(
-                    f"{error_summary}\nFirst 5 errors: "
-                    f"{self.validation_errors[:5]}"
+                    f"{error_summary}\nFirst 5 errors: {self.validation_errors[:5]}"
                 )
+            logger.warning(f"Non-strict mode: proceeding with {len(valid_records)} valid records")
 
         logger.info(f"Validation complete: {len(valid_records)}/{len(records)} valid")
         return valid_records
@@ -113,7 +116,6 @@ class Validator:
         required_fields: Set[str] = set(schema.get("required_fields", []))
         field_types: Dict[str, type] = schema.get("field_types", {})
 
-        # Check required fields
         for field in required_fields:
             if field not in record:
                 if not self.config.allow_null_required_fields:
@@ -122,7 +124,6 @@ class Validator:
                 if not self.config.allow_null_required_fields:
                     raise ValidationError(f"Required field '{field}' is null")
 
-        # Check field types
         for field, expected_type in field_types.items():
             if field in record and record[field] is not None:
                 if not isinstance(record[field], expected_type):
@@ -197,7 +198,6 @@ class Validator:
         if not records:
             return quality_report
 
-        # Count nulls
         all_fields = set()
         for record in records:
             all_fields.update(record.keys())

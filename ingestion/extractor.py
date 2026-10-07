@@ -38,7 +38,6 @@ class Extractor:
         """
         session = requests.Session()
 
-        # Configure retry strategy
         retry_strategy = Retry(
             total=self.config.max_retries,
             backoff_factor=1,
@@ -50,7 +49,6 @@ class Extractor:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
 
-        # Set default headers
         session.headers.update(self.config.headers)
         if self.config.api_key:
             session.headers.update({"Authorization": f"Bearer {self.config.api_key}"})
@@ -147,6 +145,8 @@ class Extractor:
         """
         all_records: List[Dict[str, Any]] = []
         page = 1
+        retry_count = 0
+        max_retries = 3
 
         logger.info(
             f"Starting paginated extraction from {endpoint} "
@@ -162,6 +162,7 @@ class Extractor:
 
             try:
                 records = self.extract(endpoint, request_params)
+                retry_count = 0
 
                 if not records:
                     logger.info(f"No more records at page {page}")
@@ -173,18 +174,20 @@ class Extractor:
                     f"(total: {len(all_records)})"
                 )
 
-                # Check if we got fewer records than page_size (indicating last page)
                 if len(records) < page_size:
                     logger.info(f"Reached last page at page {page}")
                     break
 
                 page += 1
-                time.sleep(0.5)  # Rate limiting
+                time.sleep(0.5)
 
             except RetryableError as e:
-                logger.warning(f"Retryable error on page {page}: {str(e)}")
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error(f"Max retries ({max_retries}) exceeded on page {page}")
+                    raise ExtractionError(f"Failed to extract page {page} after {max_retries} retries") from e
+                logger.warning(f"Retryable error on page {page}: {str(e)}. Retry {retry_count}/{max_retries}")
                 time.sleep(self.config.retry_delay)
-                page += 1
 
         logger.info(f"Paginated extraction complete: {len(all_records)} total records")
         return all_records
